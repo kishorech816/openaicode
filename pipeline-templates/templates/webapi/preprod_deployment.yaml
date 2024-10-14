@@ -1,0 +1,87 @@
+parameters:
+  - name: environment
+    type: string
+  - name: environmentAzdo
+    type: string
+  - name: clusterRg
+    type: string
+  - name: clusterName
+    type: string
+  - name: helmReleaseName
+    type: string
+  - name: helmChartVersion
+  - name: namespace
+    type: string
+  - name: imageRepository
+    type: string
+  - name: acrName
+    type: string
+  - name: imageversion
+    type: string    
+jobs:
+  - deployment: deployment
+    environment: ${{ parameters.environmentAzdo }}
+    displayName: Deployment_PreProd_${{ parameters.imageversion }}
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+            - checkout: self
+            #- checkout: templates
+            - task: Docker@2
+              inputs:
+                containerRegistry: 'acrtestshardseruaen'
+                command: 'login'
+                addPipelineData: false
+                addBaseImageData: false
+            - task: Docker@2
+              inputs:
+                containerRegistry: 'acrpreprodsharduaen'
+                command: 'login'
+                addPipelineData: false
+                addBaseImageData: false
+            - task: Bash@3
+              displayName: Pulling_docker_image
+              inputs:
+                targetType: inline
+                # docker_registry_name - name of the private repository
+                script: |
+                  echo "image_repo : ${{ parameters.imageRepository }}"
+                  echo ""image_version : ${{ parameters.imageversion }}""
+                  docker pull acrtestshardseruaen.azurecr.io/${{ parameters.imageRepository }}:${{ parameters.imageversion }}
+                  docker tag acrtestshardseruaen.azurecr.io/${{ parameters.imageRepository }}:${{ parameters.imageversion }} \
+                                     acrpreprodsharduaen.azurecr.io/${{ parameters.imageRepository }}:${{ parameters.imageversion }}
+                  docker push acrpreprodsharduaen.azurecr.io/${{ parameters.imageRepository }}:${{ parameters.imageversion }}
+                  docker rmi -f acrtestshardseruaen.azurecr.io/${{ parameters.imageRepository }}:${{ parameters.imageversion }}
+                  docker rmi -f acrpreprodsharduaen.azurecr.io/${{ parameters.imageRepository }}:${{ parameters.imageversion }}
+            - task: AzureCLI@2
+              displayName: Login to AKS cluster
+              inputs:
+                azureSubscription: "AKS_${{ upper(parameters.environment) }}_SPN"
+                scriptType: "pscore"
+                scriptLocation: "inlineScript"
+                inlineScript: |
+                  az aks get-credentials --resource-group "${{ parameters.clusterRg }}" --name "${{ parameters.clusterName }}" --overwrite-existing
+                  kubelogin convert-kubeconfig -l spn --client-id $env:servicePrincipalId --client-secret $env:servicePrincipalKey
+                addSpnToEnvironment: true
+            - task: PowerShell@2
+              displayName: Helm add repo
+              inputs:
+                targetType: "inline"
+                script: |
+                  helm repo add webapi https://sahubhelmprodrepouaen01.blob.core.windows.net/helm/
+                  helm repo update
+            - task: CmdLine@2
+              displayName: Helm Dry Run
+              inputs:
+                script: |
+                  helm upgrade -n ${{ parameters.namespace }} -i ${{ parameters.helmReleaseName }} webapi --version ${{ parameters.helmChartVersion }} \
+                        --set image.name=${{ parameters.acrName }}.azurecr.io/${{ parameters.imageRepository }},image.tag=${{ parameters.imageversion }} \
+                        -f helm/values.${{ parameters.environment }}.yaml --dry-run
+            - task: CmdLine@2
+              displayName: Helm Release Application
+              inputs:
+                script: |
+                  helm upgrade -n ${{ parameters.namespace }} -i ${{ parameters.helmReleaseName }} webapi --version ${{ parameters.helmChartVersion }} \
+                        --set image.name=${{ parameters.acrName }}.azurecr.io/${{ parameters.imageRepository }},image.tag=${{ parameters.imageversion }} \
+                        -f helm/values.${{ parameters.environment }}.yaml --wait --timeout 10m

@@ -1,0 +1,55 @@
+name: deploy-${{ parameters.env }}-$(Build.BuildId)-$(Date:dd-MMM-yyyy)
+
+trigger: none
+
+parameters:
+  - name: env
+    displayName: Environment
+    type: string
+    values:
+      - dev
+      - test
+      - preprod
+      - prod
+
+variables:
+  - group: aks-${{ parameters.env }}-oi-secrets
+
+stages:
+  - stage: configure_environment
+    displayName: Environment configuration
+    pool:
+      ${{ if in(parameters.env, 'dev', 'test', 'preprod') }}:
+        name: ADX-SHA-LINUX
+      ${{ elseif eq(parameters.env, 'prod') }}:
+        name: ADX-SHA-Linux-Prod
+    jobs:
+      - job: prequesitites_aks_cluster
+        displayName: 'Post_Deployment_Infra_${{ parameters.env }}'
+        steps:
+          - task: PowerShell@2
+            displayName: Helm NGINX upgrade on API cluster
+            inputs:
+              targetType: "inline"
+              ${{ if in(parameters.env, 'dev', 'test') }}:
+                script: |
+                  ###helm repo add ingress-nginx/ingress-nginx
+                  kubectl apply -f azure_kubernetes_aks/helm/nginx/${{ parameters.env }}/nginx-ns-secretclass.yaml
+                  helm upgrade -i ingress-nginx ingress-nginx/ingress-nginx --version "4.11.0" --create-namespace -n ingress-nginx -f helm/nginx/${{ parameters.env}}/values.yaml --reset-values --atomic
+                  
+          - task: PowerShell@2
+            displayName: ECK Operator and ELK Installation
+            inputs:
+              targetType: "inline"
+              script: |
+                helm repo add elastic https://helm.elastic.co && helm repo update
+                helm upgrade - elastic-operator elastic/eck-operator -n elastic-system --create-namespace -f helm/eck/${{ parameters.env }}/values.yaml --reset-values --atomic
+                kubectl apply -f helm/elk/${{ parameters.env }}/values.yaml
+
+          - task: PowerShell@2
+            displayName: Prometheus Kube-Prometheus-stack Instaltion
+            inputs:
+              targetType: "inline"
+              script: |
+                helm repo add prometheus-community https://prometheus-community.github.io/helm-charts && helm repo update
+                helm upgrade - prometheus prometheus-community/kube-prometheus-stack -n elastic-system --create-namespace -f helm/monitoring/${{ parameters.env }}/values.yaml --reset-values --atomic

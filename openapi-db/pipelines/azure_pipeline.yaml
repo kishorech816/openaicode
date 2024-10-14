@@ -1,0 +1,53 @@
+name: build No.$(Build.BuildId) of $(Build.DefinitionName) requested by $(Build.RequestedFor) at $(Date:dd-MMM-yyyy)
+
+trigger:
+  branches:
+    include:
+    - development
+  paths:
+    exclude:
+    - readme.md
+    - .gitignore
+
+resources:
+  repositories:
+    - repository: templates
+      type: git
+      name: pipeline-templates
+      ref: main
+
+parameters:
+  - name: environment
+    displayName: Environment
+    type: string
+      - dev
+      - test
+      - preprod
+      - prod
+
+variables:
+  - group: aks-dev-secrets   #### 
+  - name: appname
+    value: db
+  - name: k8s-namespace
+    value: app
+  - name: helmChartVersion
+    value: 1.0.0
+
+stages:
+  - stage: Deployment
+    displayName: Deployment_$(environment)
+    pool:
+      name: np-linux-runner
+    jobs:
+      - template: templates/webdb/deployment.yaml@templates
+        parameters:
+          environment: $(environment)
+          environmentAzdo: $(appname)-$(environment)
+          imageRepository: $(appname)
+          acrName: $(acrName)
+          helmReleaseName: $(appname)
+          helmChartVersion: $(helmChartVersion)
+          namespace: $(k8s-namespace)
+          clusterRg: $(aks_cluster_rg)
+          clusterName: $(aks_cluster_name)

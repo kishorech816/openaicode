@@ -1,0 +1,199 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: elastic
+  namespace: elastic-system
+automountServiceAccountToken: false
+---
+apiVersion: elasticsearch.k8s.elastic.co/v1
+kind: Elasticsearch
+metadata:
+  name: elastic-analytics
+  namespace: elastic-system
+  annotations:
+    eck.k8s.elastic.co/downward-node-labels: "topology.kubernetes.io/zone"
+spec:
+  version: 8.13.4
+  image: xxxxxxxxx.azurecr.io/elasticsearch/elasticsearch:8.14.3
+  http:
+    service:
+      spec:
+        type: ClusterIP
+    tls:
+      certificate:
+        secretName: adxcloudtls
+  monitoring:
+    metrics:
+      elasticsearchRefs:
+      - name: elastic-analytics
+        namespace: elastic-system
+  nodeSets:
+  - name: default
+    count: 2
+    config:
+      node.roles: ["master", "data", "data_hot", "ingest", "ml", "data_content"]
+      node.attr.zone: ${ZONE:default_zone}}
+      cluster.routing.allocation.awareness.attributes: k8s_node_name,zone
+    podTemplate:
+      metadata:
+        labels:
+          azure.workload.identity/use: "true"
+      spec:
+        automountServiceAccountToken: true
+        serviceAccountName: elastic
+        # This init container ensures that the max_map_count setting has been applied before starting Elasticsearch.
+        initContainers:
+        - name: sysctl
+          securityContext:
+            privileged: true
+            runAsUser: 0
+          command: ['sh', '-c', 'sysctl -w vm.max_map_count=262144']
+        containers:
+        - name: elasticsearch
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            privileged: false
+            readOnlyRootFilesystem: true
+          env:
+          - name: ES_JAVA_OPTS
+            value: -Xms2g -Xmx2g
+          - name: READINESS_PROBE_TIMEOUT
+            value: "10"
+          - name: PRE_STOP_ADDITIONAL_WAIT_SECONDS
+            value: "10"
+          - name: ZONE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.annotations['topology.kubernetes.io/zone']
+          readinessProbe:
+            exec:
+              command:
+              - bash
+              - -c
+              - /mnt/elastic-internal/scripts/readiness-probe-script.sh
+            failureThreshold: 3
+            initialDelaySeconds: 10
+            periodSeconds: 12
+            successThreshold: 1
+            timeoutSeconds: 12
+          resources:
+            requests:
+              cpu: 1
+              memory: 4G
+            limits:
+              memory: 4G
+        topologySpreadConstraints:
+          - maxSkew: 1
+            topologyKey: topology.kubernetes.io/zone
+            whenUnsatisfiable: ScheduleAnyway
+            labelSelector:
+              matchLabels:
+                elasticsearch.k8s.elastic.co/cluster-name: elasticsearch-analytics
+                elasticsearch.k8s.elastic.co/statefulset-name: elastic-analytics-es-default
+        tolerations:
+        - key: Elasticsearch
+          operator: Equal
+          value: "yes"
+          effect: NoSchedule 
+        - key: "kubernetes.azure.com/scalesetpriority"
+          operator: "Equal"
+          value: "spot"
+          effect: "NoSchedule"
+        affinity:
+          podAntiAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  elasticsearch.k8s.elastic.co/cluster-name: elastic-analytics
+              topologyKey: kubernetes.io/hostname
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+              - matchExpressions:
+                - key: "Elasticsearch"
+                  operator: In
+                  values:
+                  - "yes"
+    volumeClaimTemplates:
+    - metadata:
+        name: elasticsearch-data # Do not change this name unless you set up a volume mount for the data path.
+      spec:
+        accessModes:
+        - ReadWriteOnce
+        resources:
+          requests:
+            storage: 100Gi
+        storageClassName: managed-csi-retain-zrs
+
+##Kibana ##
+---
+apiVersion: kibana.k8s.elastic.co/v1
+kind: Kibana
+metadata:
+  name: kibana-analytics
+  namespace: elastic-system
+spec:
+  version: 8.13.4
+  image: xxxxxxxxxxxx.azurecr.io/kibana/kibana:8.14.3
+  count: 1
+  elasticsearchRef:
+    name: elastic-analytics
+    namespace: elastic-system
+  monitoring:
+    metrics:
+      elasticsearchRefs:
+      - name: elasticsearch
+        namespace: elastic-system 
+  config:
+    # https://www.elastic.co/guide/en/kibana/current/monitoring-metricbeat.html
+    monitoring.ui.ccs.enabled: false
+    #monitoring.ui.enable: true
+    server.publicBaseUrl: "https://kibana-dev.domain.ae"
+  http:
+    service:
+      metadata:
+        annotations:
+          service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+          service.beta.kubernetes.io/azure-load-balancer-ipv4: "10.244.100.244"
+      spec: 
+        type: LoadBalancer
+        ports:
+        - name: https
+          protocol: TCP
+          port: 443
+          targetPort: 5601
+    tls:
+      certificate:
+        secretName: adxcloudtls
+  podTemplate:
+    spec:
+      containers:
+      - name: kibana
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          privileged: false
+          readOnlyRootFilesystem: true
+        env:
+          - name: NODE_OPTIONS
+            value: "--max-old-space-size=1024"
+        resources:
+          requests:
+            memory: 2Gi
+            cpu: 500m
+          limits:
+            memory: 2Gi
+      tolerations:
+      - key: Elasticsearch
+        operator: Equal
+        value: "yes"
+        effect: NoSchedule 
+      - key: "kubernetes.azure.com/scalesetpriority"
+        operator: "Equal"
+        value: "spot"
+        effect: "NoSchedule"

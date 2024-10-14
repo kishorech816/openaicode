@@ -1,0 +1,40 @@
+virtualServer: false
+ingress: true
+applicationName: web
+namespace: web
+domain: webdev.xxx.com
+applicationPort: 8080
+
+resources:
+  limits:
+    cpu: 250m
+    memory: 512Mi
+  requests:
+    cpu: 250m
+    memory: 512Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 2
+  targetCPUUtilizationPercentage: 75
+  targetMemoryUtilizationPercentage: 75
+
+podDisruptionBudget:
+  enabled: false
+
+
+kvUAMI: xxxxxxxxxxxxx
+kvName: kv-dev-name
+kvTenantId: xxxxxxxxxxx
+
+secretProviderClass:
+  enabled: true
+  objects: |
+    array:
+      - |
+        objectName: SP-Password
+        objectType: secret
+      - |  
+        objectName: SP-Password1
+        objectType: secret

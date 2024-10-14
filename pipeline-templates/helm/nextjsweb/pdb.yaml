@@ -1,0 +1,23 @@
+{{- if .Values.podDisruptionBudget.enabled -}}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ .Values.applicationName }}
+  namespace: {{ .Values.namespace}}
+  labels:
+    app: {{ .Values.applicationName }}
+{{- if .Values.podDisruptionBudget.annotations }}
+  annotations:
+{{ toYaml .Values.podDisruptionBudget.annotations | indent 4 }}
+{{- end }}
+spec:
+  selector:
+    matchLabels:
+      app: {{ .Values.applicationName }}
+{{- if .Values.podDisruptionBudget.minAvailable }}
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+{{- end }}
+{{- if .Values.podDisruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
+{{- end }}
+{{- end }}

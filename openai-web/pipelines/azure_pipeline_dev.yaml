@@ -1,0 +1,63 @@
+name: build No.$(Build.BuildId) of $(Build.DefinitionName) requested by $(Build.RequestedFor) at $(Date:dd-MMM-yyyy)
+
+trigger:
+  branches:
+    include:
+    - development
+  paths:
+    exclude:
+    - readme.md
+    - .gitignore
+
+resources:
+  repositories:
+    - repository: templates
+      type: git
+      name: pipeline-templates
+      ref: main
+
+parameters:
+  - name: environment
+    displayName: Environment
+    type: string
+    default: dev
+
+variables:
+  - group: aks-dev-secrets   #### 
+  - name: appname
+    value: web
+  - name: k8s-namespace
+    value: web
+  - name: helmChartVersion
+    value: 1.0.0
+
+stages:
+  - stage: Build
+    displayName: Build and Push
+    pool:
+      name: np-linux-runner   ### ADO Non-Prod Pool agent name
+    jobs:
+      - template: templates/nextjs/build-ci.yaml@templates # CI template will contains SCA,SAST,Image scanning Stages
+        parameters:
+          environment: $(environment)
+          imageRepository: web
+          acrName: $(acrName)
+          sourceVersion: $(Build.SourceVersion)
+
+  - stage: Deployment
+    displayName: Deployment_$(environment)
+    pool:
+      name: np-linux-runner
+    jobs:
+      - template: templates/nextjs/dev_deployment.yaml@templates
+        parameters:
+          environment: $(environment)
+          environmentAzdo: $(appname)-$(environment)
+          imageRepository: $(appname)
+          acrName: $(acrName)
+          sourceVersion: $(Build.SourceVersion)
+          helmReleaseName: $(appname)
+          helmChartVersion: $(helmChartVersion)
+          namespace: $(k8s-namespace)
+          clusterRg: $(aks_cluster_rg)
+          clusterName: $(aks_cluster_name)

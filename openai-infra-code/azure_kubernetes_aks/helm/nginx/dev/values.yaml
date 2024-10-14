@@ -1,0 +1,58 @@
+controller:
+  replicaCount: 1
+  nodeSelector:
+    kubernetes.io/os: linux
+  image:
+    image: ingress-nginx/controller
+    tag: v1.8.1
+    digest: ""
+  metrics:
+    enabled: true
+    service:
+      annotations:
+        prometheus.io/scrape: 'true'
+        prometheus.io/path: '/metrics'
+        prometheus.io/port: '10254'
+  admissionWebhooks:
+    patch:
+      image:
+        image: ingress-nginx/kube-webhook-certgen
+        tag: v20230407
+        digest: ""
+      nodeSelector:
+        kubernetes.io/os: linux
+  service:
+    enableHttp: false
+    annotations:
+      service.beta.kubernetes.io/azure-load-balancer-health-probe-request-path: /livez
+      service.beta.kubernetes.io/azure-load-balancer-internal: true
+    loadBalancerIP: x.x.x.x
+    externalTrafficPolicy: Local
+  extraArgs:
+    default-ssl-certificate: ingress-nginx/nginx-default-tls
+  extraVolumes:
+    - name: secrets-store-inline
+      csi:
+        driver: secrets-store.csi.k8s.io
+        readOnly: true
+        volumeAttributes:
+          secretProviderClass: "azure-kv-hub"
+  extraVolumeMounts:
+    - name: secrets-store-inline
+      mountPath: "/mnt/secrets-store"
+      readOnly: true
+  resources:
+    limits:
+      memory: 500Mi
+    requests:
+      cpu: 300m
+      memory: 500Mi
+defaultBackend:
+  nodeSelector:
+    kubernetes.io/os: linux
+  image:
+    image: defaultbackend-amd64
+    tag: 1.5
+    digest: ""
+rbac:
+  create: true

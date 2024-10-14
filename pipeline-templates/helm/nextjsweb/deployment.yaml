@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.applicationName }}
+  labels:
+    app: {{ .Values.applicationName }}
+  namespace: {{ .Values.namespace}}
+spec:
+  replicas: {{ .Values.numberOfInstances }}
+  selector:
+    matchLabels:
+      app: {{ .Values.applicationName }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.applicationName }}
+    spec:
+      containers:
+        - name: {{ .Values.applicationName }}
+          image: "{{ .Values.image.name }}:{{ .Values.image.tag }}"
+          imagePullPolicy: Always
+          ports:
+            - containerPort: {{ .Values.applicationPort }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            privileged: false
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            capabilities:
+              drop:
+              - ALL
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: {{ .Values.applicationPort }}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: {{ .Values.applicationPort }}
+            initialDelaySeconds: 300
+            periodSeconds: 30
+            timeoutSeconds: 3
+            failureThreshold: 3
+{{- if .Values.secretProviderClass.enabled }}
+          volumeMounts:
+          - name: aks-kv-secrets
+            mountPath: "/mnt/secrets-store"
+            readOnly: true
+{{- end }}
+      automountServiceAccountToken: false
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: {{ .Values.applicationName }}
+      nodeSelector:
+        kubernetes.io/os: linux
+      tolerations:
+      - key: "kubernetes.azure.com/scalesetpriority"
+        operator: "Equal"
+        value: "spot"
+        effect: "NoSchedule"
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: {{ .Values.applicationName }}
+              topologyKey: "kubernetes.io/hostname"
+{{- if .Values.secretProviderClass.enabled }}
+      volumes:
+      - name: aks-kv-secrets
+        csi:
+          driver: secrets-store.csi.k8s.io
+          readOnly: true
+          volumeAttributes:
+            secretProviderClass: {{ .Values.applicationName }}-spc
+{{- end }}

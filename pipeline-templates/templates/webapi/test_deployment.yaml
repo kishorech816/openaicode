@@ -1,0 +1,77 @@
+parameters:
+  - name: environment
+    type: string
+  - name: environmentAzdo
+    type: string
+  - name: clusterRg
+    type: string
+  - name: clusterName
+    type: string
+  - name: helmReleaseName
+    type: string
+  - name: helmChartVersion
+  - name: namespace
+    type: string
+  - name: imageRepository
+    type: string
+  - name: acrName
+    type: string
+  - name: sourceVersion
+    type: string
+    
+jobs:
+  - deployment: deployment
+    environment: ${{ parameters.environmentAzdo }}
+    displayName: Deployment
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+            - task: AzureCLI@2
+              displayName: Login to AKS cluster
+              inputs:
+                azureSubscription: "AKS_${{ upper(parameters.environment) }}_SPN"
+                scriptType: "pscore"
+                scriptLocation: "inlineScript"
+                inlineScript: |
+                  az aks get-credentials --resource-group "${{ parameters.clusterRg }}" --name "${{ parameters.clusterName }}" --overwrite-existing
+                  kubelogin convert-kubeconfig -l spn --client-id $env:servicePrincipalId --client-secret $env:servicePrincipalKey
+                addSpnToEnvironment: true
+            - task: DownloadPipelineArtifact@2
+              inputs:
+                artifact: 'helm-values-file' # Name of the artifact to download
+                path: '$(Build.SourcesDirectory)/helm' # Path to download the artifact to
+
+            - task: PowerShell@2
+              displayName: Extract 7-digit SourceVersion
+              inputs:
+                pwsh: true
+                targetType: inline
+                script: |
+                  $sourceVersion = "${{ parameters.sourceVersion }}"
+                  $shortCommitId = $sourceVersion.Substring(0, 8)
+                  echo "##vso[task.setvariable variable=shortCommitId]$shortCommitId"
+    
+            - task: PowerShell@2
+              displayName: Helm add repo
+              inputs:
+                targetType: "inline"
+                script: |
+                  helm repo add webapi https://sahubhelmrepouaen01.blob.core.windows.net/helm/   #####helm chart repo #######
+                  helm repo update
+
+            - task: CmdLine@2
+              displayName: Helm Dry Run
+              inputs:
+                script: |
+                  helm upgrade -n ${{ parameters.namespace }} -i ${{ parameters.helmReleaseName }} webapi --version ${{ parameters.helmChartVersion }} \
+                        --set image.name=${{ parameters.acrName }}.azurecr.io/${{ parameters.imageRepository }},image.tag=$(shortCommitId) \
+                        -f $(Build.SourcesDirectory)/helm/values.${{ parameters.environment }}.yaml --dry-run
+
+            - task: CmdLine@2
+              displayName: Helm Release Application
+              inputs:
+                script: |
+                  helm upgrade -n ${{ parameters.namespace }} -i ${{ parameters.helmReleaseName }} webapi --version ${{ parameters.helmChartVersion }} \
+                        --set image.name=${{ parameters.acrName }}.azurecr.io/${{ parameters.imageRepository }},image.tag=$(shortCommitId) \
+                        -f $(Build.SourcesDirectory)/helm/values.${{ parameters.environment }}.yaml --atomic --timeout 10m

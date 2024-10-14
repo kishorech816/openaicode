@@ -1,0 +1,13 @@
+{
+  "tools": [
+    {
+      "tool": {
+        "name": "Checkov",
+        "version": "Latest"
+      },
+      "arguments": {
+        "TargetDirectory": "openai-code/azure_kubernetes_aks"
+      }
+    }
+  ]
+}

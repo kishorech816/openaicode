@@ -1,0 +1,39 @@
+General:
+  vnet_name: vnet_oi_dev_ne_01
+  vnet_name_resource_grp_name: rg_oi_dev_spknet_ne_01
+  app_resource_group_name: rg_oi_dev_aks_ne_01
+  app_subnet_name: snet_dev_aks_ne_01
+  environment: "dev"
+  shared_resource_group_name: rg_oi_dev_shared_ne_01
+  uami_shared_des_name: UAMI_AKS_Shared_DEV_NE_01
+  amw_dcr_name: amw-prom-aks-dev-shared-ne-01
+  amw_dcp_name: amw-prom-aks-dev-shared-ne-01
+  amw_resource_group_name: MA_amw-prom-aks-dev-shared-ne-01_northeurope_managed
+
+Applications:
+  keyvault:
+    name: kv-oi-dev-aks-ne-01
+    enable_ip_configuration: false
+    private_endpoint_name: pep-kv-oi-dev-aks-ne-01
+    private_endpoint_subnet_name: snet_dev_aks_ne_01
+    private_service_connection_name: psc-kv-oi-dev-aks-ne-01
+    subresource_name: "vault"
+    private_endpoint_ip: 10.244.1.5
+    private_dns_zones_name: privatelink.vaultcore.azure.net
+    private_dns_resource_group_name: rg-Shared_PrivateDNSzone_hub-ne-001
+    private_dns_zone_group_name: dnszg-kv-oi-dev-aks-ne-01
+    sku_name: standard
+    soft_delete_retention_days: 7
+    admin_objects_ids: [ "xxxxxx-xxx-xxxx-xxxx-xxxxxxxxx" ]
+    reader_objects_ids: []
+    log_analytics_workspace_name: law-spk-dev-shared-ne-001
+    log_analytics_workspace_resource_grp_name: rg_oi_dev_shared_ne_01
+  aks:
+    cluster_name: aks-dev-oi-app-ne-01
+    kubernetes_version: 1.29.5
+    sku_tier: "Standard"
+    admin_group_object_id: "xxxxxxx-xxxxxx-xxxxxx-xxxxxx"   ## AKS Central ADMIN AD GrOUP objectId
+    uami_aks_cp: UAMI_AKS_CP_DEV_NE_01
+    uami_aks_rt: UAMI_AKS_RT_DEV_NE_01
+    uami_resource_group: rg_oi_dev_shared_ne_01
+    log_analytics_workspace_enabled: false

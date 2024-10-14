@@ -1,0 +1,47 @@
+{{- if .Values.ingress }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Values.applicationName }}-ingress
+  namespace: {{ .Values.namespace}}
+  annotations:
+    nginx.org/client-max-body-size: 50m
+    nginx.ingress.kubernetes.io/proxy-body-size: 50m
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+     - {{ .Values.domain }}
+  rules:
+      - host: {{ .Values.domain }}
+        http:
+          paths:
+          - path: /
+            backend:
+              service:
+                name: {{ .Values.applicationName }}-svc
+                port:
+                  number: {{ .Values.applicationPort }}
+            pathType: Prefix
+{{- end }}
+---
+{{- if .Values.virtualServer }}
+apiVersion: k8s.nginx.org/v1
+kind: VirtualServer
+metadata:
+  name: {{ .Values.applicationName }}-nginx-vs
+spec:
+  host: {{ .Values.domain }}
+  tls:
+    redirect:
+      enable: true
+  upstreams:
+  - name: service
+    service: {{ .Values.applicationName }}-svc
+    port: {{ .Values.applicationPort }}
+    client-max-body-size: 50m
+  routes:
+  - path: /
+    action:
+      pass: service
+{{- end }}

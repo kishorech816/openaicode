@@ -1,0 +1,144 @@
+name: deploy-${{ parameters.env }}-$(Build.BuildId)-$(Date:dd-MMM-yyyy)
+
+parameters:
+  - name: env
+    displayName: Environment
+    type: string
+    default: dev
+    values:
+      - dev
+      - test
+      - preprod
+      - prod
+
+trigger: none
+
+variables:
+  - group: aks-oi-${{ parameters.env }}-terraform-secrets
+
+stages:
+  - stage: plan_environment
+    displayName: Terraform Plan
+    pool:
+      ${{ if in(parameters.env, 'dev', 'test', 'preprod') }}:
+        name: non-prod-linxu-runner
+      ${{ elseif eq(parameters.env, 'prod') }}:
+        name: prod-linxu-runner
+    jobs:
+      - job: scan
+        condition: ${{ in(parameters.env, 'dev', 'test') }}
+        steps:
+          - task: MicrosoftSecurityDevOps@1
+            displayName: 'Microsoft Security DevOps'
+            inputs:
+              config: 'openai-code/azure_kubernetes_aks/.gdnconfig'
+              command: run
+              categories: IaC
+              languages: terraform
+              tools: Checkov
+              break: true
+            continueOnError: true
+
+      - job: plan
+        steps:
+          - task: AzureCLI@2
+            displayName: Terraform init
+            inputs:
+              azureSubscription: "SPOKE_${{ upper(parameters.env) }}_SPN_FED"
+              scriptType: "bash"
+              scriptLocation: "inlineScript"
+              inlineScript: |
+                export ARM_CLIENT_ID=$servicePrincipalId
+                export ARM_OIDC_TOKEN=$idToken
+                export ARM_TENANT_ID=$tenantId
+                export ARM_USE_OIDC=true
+ 
+                terraform init \
+                  -backend-config=subscription_id=$(BACKEND_SUBSCRIPTION_ID) \
+                  -backend-config=resource_group_name=$(BACKEND_RESOURCE_GROUP_NAME) \
+                  -backend-config=storage_account_name=$(BACKEND_STORAGE_ACCOUNT_NAME)
+              workingDirectory: "openai-code/azure_kubernetes_aks"
+              addSpnToEnvironment: true
+
+          - task: AzureCLI@2
+            displayName: Terraform plan
+            inputs:
+              azureSubscription: "SPOKE_${{ upper(parameters.env) }}_SPN_FED"
+              scriptType: "bash"
+              scriptLocation: "inlineScript"
+              inlineScript: |
+                export ARM_CLIENT_ID=$servicePrincipalId
+                export ARM_OIDC_TOKEN=$idToken
+                export ARM_TENANT_ID=$tenantId
+                export ARM_USE_OIDC=true
+
+                terraform plan --var-file vars.${{ parameters.env }}.tfvars -out plan                       
+              workingDirectory: "openai-code/azure_kubernetes_aks"
+              addSpnToEnvironment: true
+
+          - task: PublishBuildArtifacts@1
+            displayName: Publish Plan
+            inputs:
+              ArtifactName: plan
+              PathtoPublish: $(Build.SourcesDirectory)/plan
+
+  - stage: provision_environment
+    displayName: Terraform Apply
+    pool:
+      ${{ if in(parameters.env, 'dev', 'test', 'preprod') }}:
+        name: non-prod-linxu-runner
+      ${{ elseif eq(parameters.env, 'prod') }}:
+        name: prod-linxu-runner
+    jobs:
+      - deployment: provision
+        environment: oi-aks-infa-${{ parameters.env }}
+        displayName: Provision infrastructure
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+
+                - download: current
+                  artifact: plan
+                  displayName: Download Artifact
+
+                - task: CmdLine@2
+                  displayName: Copy Plan
+                  inputs:
+                    script: cp -r $(Agent.BuildDirectory)/plan/plan $(Build.SourcesDirectory)/plan
+
+                - task: AzureCLI@2
+                  displayName: Terraform init
+                  inputs:
+                    azureSubscription: "SPOKE_${{ upper(parameters.env) }}_SPN_FED"
+                    scriptType: "bash"
+                    scriptLocation: "inlineScript"
+                    inlineScript: |
+                      export ARM_CLIENT_ID=$servicePrincipalId
+                      export ARM_OIDC_TOKEN=$idToken
+                      export ARM_TENANT_ID=$tenantId
+                      export ARM_USE_OIDC=true
+
+                      terraform init \
+                        -backend-config=subscription_id=$(BACKEND_SUBSCRIPTION_ID) \
+                        -backend-config=resource_group_name=$(BACKEND_RESOURCE_GROUP_NAME) \
+                        -backend-config=storage_account_name=$(BACKEND_STORAGE_ACCOUNT_NAME)
+                    workingDirectory: "openai-code/azure_kubernetes_aks"
+                    addSpnToEnvironment: true
+
+                - task: AzureCLI@2
+                  displayName: Terraform apply
+                  inputs:
+                    azureSubscription: "SPOKE_${{ upper(parameters.env) }}_SPN_FED"
+                    scriptType: "bash"
+                    scriptLocation: "inlineScript"
+                    inlineScript: |
+                      export ARM_CLIENT_ID=$servicePrincipalId
+                      export ARM_OIDC_TOKEN=$idToken
+                      export ARM_TENANT_ID=$tenantId
+                      export ARM_USE_OIDC=true
+
+                      terraform apply plan
+                    workingDirectory: "openai-code/azure_kubernetes_aks"
+                    addSpnToEnvironment: true

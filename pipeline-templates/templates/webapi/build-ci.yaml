@@ -1,0 +1,69 @@
+parameters:
+  - name: environment
+    type: string
+  - name: imageRepository
+    type: string
+  - name: acrName
+    type: string
+  - name: sourceVersion
+    type: string
+
+jobs:
+  - job: Build
+    displayName: Build and Push
+    steps:
+      - task: PowerShell@2
+        displayName: Extract 7-digit SourceVersion
+        inputs:
+          pwsh: true
+          targetType: inline
+          script: |
+            $sourceVersion = "${{ parameters.sourceVersion }}"
+            $shortCommitId = $sourceVersion.Substring(0, 8)
+            echo "##vso[task.setvariable variable=shortCommitId]$shortCommitId"
+
+      #Initialize Advanced Security Codeql for SAST scan
+      - task: AdvancedSecurity-Codeql-Init@1
+        inputs:
+          languages: "javascript"
+          querysuite: "security-extended"
+      #languages: # 'csharp' | 'cpp' | 'go' | 'java' | 'javascript' | 'python' | 'ruby' | 'swift'. 
+      #Languages to analyze per repository should be modified. 
+      #Run Advanced Security - Dependency scan 
+      - task: AdvancedSecurity-Dependency-Scanning@1
+
+      #Run Advanced Security - CodeQl - SAST scan
+      - task: AdvancedSecurity-Codeql-Analyze@1
+
+      - task: Docker@2
+        inputs:
+          containerRegistry: 'acrregistry'
+          command: 'login'
+          addPipelineData: false
+          addBaseImageData: false
+
+      - task: Docker@2
+        displayName: Build image
+        inputs:
+          command: build
+          repository: ${{ parameters.imageRepository }}
+          dockerfile: $(Build.SourcesDirectory)/Dockerfile
+          containerRegistry: ${{ parameters.acrName }}
+          tags: |
+            latest
+            $(shortCommitId)
+      - task: Docker@2
+        displayName: Push image
+        inputs:
+          command: push
+          repository: ${{ parameters.imageRepository }}
+          containerRegistry: ${{ parameters.acrName }}
+          tags: |
+            latest
+            $(shortCommitId)
+    
+      - task: PublishBuildArtifacts@1
+        displayName: Publish Values file
+        inputs:
+          ArtifactName: helm-values-file
+          PathtoPublish: $(Build.SourcesDirectory)/helm/values.${{ parameters.environment }}.yaml

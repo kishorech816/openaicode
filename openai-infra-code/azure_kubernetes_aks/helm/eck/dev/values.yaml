@@ -1,0 +1,18 @@
+image:
+  repository: axxxxxxxxxxx/eck/eck-operator
+  tag: 2.11.1
+  pullPolicy: IfNotPresent
+
+nodeSelector: {}
+
+tolerations:
+- key: "nodepurpose"
+  operator: "Equal"
+  value: "elastic-master-data-hot"
+  effect: "NoSchedule"
+- key: "kubernetes.azure.com/scalesetpriority"
+  operator: "Equal"
+  value: "spot"
+  effect: "NoSchedule"
+config:
+  containerRegistry: xxxxxxxxxxxxxx
